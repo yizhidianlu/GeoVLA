@@ -28,9 +28,13 @@ echo "[env_setup] Prefix: $CONDA_PREFIX"
 python -m pip install --upgrade pip wheel setuptools
 
 # PyTorch 2.4.1 + CUDA 12.4 (A800 driver 580+ supports CUDA 13 runtime, but
-# torch 2.4 wheels target CU12.4; runtime is forward-compatible)
-python -m pip install --index-url https://download.pytorch.org/whl/cu124 \
-    "torch==2.4.1" "torchvision==0.19.1"
+# torch 2.4 wheels target CU12.4; runtime is forward-compatible).
+# We pull directly from Aliyun's pytorch-wheels mirror because download.pytorch.org
+# is throttled to ~40 KB/s from this AutoDL region — Aliyun delivers full bandwidth.
+# Reference: https://mirrors.aliyun.com/pytorch-wheels/
+python -m pip install \
+    "https://mirrors.aliyun.com/pytorch-wheels/cu124/torch-2.4.1%2Bcu124-cp310-cp310-linux_x86_64.whl" \
+    "https://mirrors.aliyun.com/pytorch-wheels/cu124/torchvision-0.19.1%2Bcu124-cp310-cp310-linux_x86_64.whl"
 
 # HF + training infra
 python -m pip install \
