@@ -20,9 +20,9 @@ dist/
 .idea/
 *.swp
 
-# Data / large files
-data/
-datasets/
+# Data / large files (only at repo root, not inside `geovla/`)
+/data/
+/datasets/
 *.pt
 *.bin
 *.safetensors
