@@ -69,13 +69,16 @@ def main():
     proprio_mean = torch.tensor(norm["proprio_mean"], dtype=torch.float32, device=args.device)
     proprio_std = torch.tensor(norm["proprio_std"], dtype=torch.float32, device=args.device)
 
-    if args.variant == "A":
-        model = VariantA().to(args.device)
-    else:
-        model = VariantB().to(args.device)
+    # Read chunk_size from ckpt args (saved at train time)
     ckpt = torch.load(run_dir / "model.pt", map_location=args.device, weights_only=False)
+    chunk_size = ckpt["args"].get("chunk_size", 1)
+    if args.variant == "A":
+        model = VariantA(chunk_size=chunk_size).to(args.device)
+    else:
+        model = VariantB(chunk_size=chunk_size).to(args.device)
     model.load_state_dict(ckpt["state_dict"])
     model.eval()
+    print(f"[eval] chunk_size = {chunk_size}")
 
     env, task, task_idx, suite = make_env(task_file)
     print(f"[eval] task = {task.name}  (idx {task_idx})")
@@ -91,40 +94,54 @@ def main():
             obs, _, _, _ = env.step(rng.uniform(-0.05, 0.05, size=7))
         succ = False
         steps_used = args.max_steps
-        for t in range(args.max_steps):
+        # Action chunking: predict once, execute K steps, then re-predict
+        # (receding-horizon style — execute exec_horizon of the K predicted actions)
+        exec_horizon = max(1, chunk_size // 2)
+        t = 0
+        while t < args.max_steps:
             # robosuite env uses different obs keys than the demo hdf5 — map them.
             img = obs.get("agentview_image", obs.get("agentview_rgb"))
             if img is None:
                 break
-            img = torch.from_numpy(img).permute(2, 0, 1).float().unsqueeze(0).to(args.device) / 255.0
+            img_t = torch.from_numpy(img).permute(2, 0, 1).float().unsqueeze(0).to(args.device) / 255.0
 
-            ee_pos = obs.get("robot0_eef_pos", obs.get("ee_pos"))           # (3,)
-            quat = obs.get("robot0_eef_quat")                              # (4,) xyzw
+            ee_pos = obs.get("robot0_eef_pos", obs.get("ee_pos"))
+            quat = obs.get("robot0_eef_quat")
             if quat is not None:
                 from scipy.spatial.transform import Rotation
-                ee_ori = Rotation.from_quat(quat).as_euler("xyz")          # (3,)
+                ee_ori = Rotation.from_quat(quat).as_euler("xyz")
             else:
                 ee_ori = obs["ee_ori"]
-            joint = obs.get("robot0_joint_pos", obs.get("joint_states"))   # (7,)
-            gripper = obs.get("robot0_gripper_qpos", obs.get("gripper_states"))  # (2,)
-            prop = np.concatenate([ee_pos, ee_ori, joint, gripper])         # (15,)
+            joint = obs.get("robot0_joint_pos", obs.get("joint_states"))
+            gripper = obs.get("robot0_gripper_qpos", obs.get("gripper_states"))
+            prop = np.concatenate([ee_pos, ee_ori, joint, gripper])
             prop_t = torch.from_numpy(prop).float().to(args.device).unsqueeze(0)
             prop_t = (prop_t - proprio_mean) / proprio_std
 
             with torch.no_grad():
-                a_norm = model(img, prop_t)
-            a = (a_norm * action_std + action_mean).squeeze(0).cpu().numpy()
-            a = np.clip(a, -1.0, 1.0)  # action clip to safe range
+                a_norm = model(img_t, prop_t)                  # (1, K, 7)
+            a_chunk = (a_norm * action_std + action_mean).squeeze(0).cpu().numpy()  # (K, 7)
+            a_chunk = np.clip(a_chunk, -1.0, 1.0)
 
-            obs, reward, done, info = env.step(a)
-            if reward > 0 or info.get("success", False):
-                succ = info.get("success", reward > 0)
-                if succ:
-                    steps_used = t + 1
+            # execute exec_horizon actions before re-predicting
+            broke = False
+            for k in range(exec_horizon):
+                if t >= args.max_steps:
                     break
-            if done:
-                steps_used = t + 1
-                succ = info.get("success", False)
+                obs, reward, done, info = env.step(a_chunk[k])
+                t += 1
+                if reward > 0 or info.get("success", False):
+                    succ = info.get("success", reward > 0)
+                    if succ:
+                        steps_used = t
+                        broke = True
+                        break
+                if done:
+                    steps_used = t
+                    succ = info.get("success", False)
+                    broke = True
+                    break
+            if broke:
                 break
         successes.append(int(succ))
         lengths.append(steps_used)

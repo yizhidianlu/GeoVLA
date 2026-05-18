@@ -46,9 +46,11 @@ def _make_image_encoder() -> tuple[nn.Module, int]:
 class VariantA(nn.Module):
     """RGB-only baseline."""
 
-    def __init__(self, action_dim: int = 7, hidden: int = 256, image_size: int = 128):
+    def __init__(self, action_dim: int = 7, chunk_size: int = 8, hidden: int = 256, image_size: int = 128):
         super().__init__()
         self.image_size = image_size
+        self.action_dim = action_dim
+        self.chunk_size = chunk_size
         self.encoder, feat = _make_image_encoder()
         self.preprocess = Compose([
             Resize((224, 224), antialias=True),
@@ -57,15 +59,16 @@ class VariantA(nn.Module):
         self.head = nn.Sequential(
             nn.Linear(feat, hidden), nn.GELU(),
             nn.Linear(hidden, hidden), nn.GELU(),
-            nn.Linear(hidden, action_dim),
+            nn.Linear(hidden, action_dim * chunk_size),
         )
 
     def forward(self, image: torch.Tensor, proprio: torch.Tensor | None = None) -> torch.Tensor:
-        """image: (B,3,H,W) in [0,1]. proprio ignored (kept in API for parity)."""
+        """image: (B,3,H,W) in [0,1]. Returns (B, chunk_size, action_dim)."""
         x = self.preprocess(image)
         with torch.no_grad():
             feat = self.encoder(x)                # (B, 512)
-        return self.head(feat)
+        out = self.head(feat)                     # (B, action_dim*chunk_size)
+        return out.view(-1, self.chunk_size, self.action_dim)
 
 
 class VariantB(nn.Module):
@@ -73,12 +76,15 @@ class VariantB(nn.Module):
 
     def __init__(self,
                  action_dim: int = 7,
+                 chunk_size: int = 8,
                  proprio_dim: int = 15,
                  proprio_embed: int = 64,
                  hidden: int = 256,
                  image_size: int = 128):
         super().__init__()
         self.image_size = image_size
+        self.action_dim = action_dim
+        self.chunk_size = chunk_size
         self.encoder, feat = _make_image_encoder()
         self.preprocess = Compose([
             Resize((224, 224), antialias=True),
@@ -91,7 +97,7 @@ class VariantB(nn.Module):
         self.head = nn.Sequential(
             nn.Linear(feat + proprio_embed, hidden), nn.GELU(),
             nn.Linear(hidden, hidden), nn.GELU(),
-            nn.Linear(hidden, action_dim),
+            nn.Linear(hidden, action_dim * chunk_size),
         )
 
     def forward(self, image: torch.Tensor, proprio: torch.Tensor) -> torch.Tensor:
@@ -100,7 +106,8 @@ class VariantB(nn.Module):
             v = self.encoder(x)
         p = self.proprio_enc(proprio)
         z = torch.cat([v, p], dim=-1)
-        return self.head(z)
+        out = self.head(z)                                    # (B, action_dim*chunk_size)
+        return out.view(-1, self.chunk_size, self.action_dim)
 
 
 def trainable_param_count(model: nn.Module) -> int:

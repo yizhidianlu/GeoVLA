@@ -55,9 +55,11 @@ class LiberoBCDataset(Dataset):
         max_demos: Optional[int] = None,
         normalise_actions: bool = True,
         image_size: int = 128,
+        chunk_size: int = 1,            # 1 = single-step BC; >1 = action chunking
     ):
         self.path = Path(hdf5_path)
         self.image_size = image_size
+        self.chunk_size = chunk_size
 
         # Pre-read all demo trajectories into memory (50 demos × ~100 steps × ~150 KB image
         # ≈ 750 MB; fits comfortably in 1TB RAM).  We avoid per-getitem hdf5 reads.
@@ -116,11 +118,17 @@ class LiberoBCDataset(Dataset):
         img = torch.from_numpy(img).permute(2, 0, 1).float() / 255.0  # (3,128,128)
         prop = self.proprios[d][t]                                    # (15,)
         prop = (prop - self.proprio_mean) / self.proprio_std
-        act = self.actions[d][t]
-        act = (act - self.action_mean) / self.action_std
+        # action chunk [chunk_size, 7] — pad with last action at episode end
+        T = self.actions[d].shape[0]
+        end = min(t + self.chunk_size, T)
+        chunk = self.actions[d][t:end]                                # (k, 7), k <= chunk_size
+        if chunk.shape[0] < self.chunk_size:
+            pad = np.repeat(chunk[-1:], self.chunk_size - chunk.shape[0], axis=0)
+            chunk = np.concatenate([chunk, pad], axis=0)
+        chunk = (chunk - self.action_mean) / self.action_std          # broadcast over chunk dim
         return (img,
                 torch.from_numpy(prop),
-                torch.from_numpy(act))
+                torch.from_numpy(chunk))                              # (chunk_size, 7)
 
     def denormalise_action(self, a: torch.Tensor) -> torch.Tensor:
         m = torch.tensor(self.action_mean, device=a.device)

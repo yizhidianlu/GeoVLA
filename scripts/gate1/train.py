@@ -36,6 +36,7 @@ def get_args():
     p.add_argument("--variant", choices=["A", "B"], required=True)
     p.add_argument("--task-keyword", default="between_the_plate_and_the_ramekin")
     p.add_argument("--max-demos", type=int, default=50)
+    p.add_argument("--chunk-size", type=int, default=8)
     p.add_argument("--steps", type=int, default=2000)
     p.add_argument("--batch", type=int, default=64)
     p.add_argument("--lr", type=float, default=3e-4)
@@ -65,8 +66,8 @@ def main():
     task_file = find_libero_spatial_task(args.data_root, args.task_keyword)
     print(f"[gate1] task file: {task_file.name}")
 
-    ds = LiberoBCDataset(task_file, max_demos=args.max_demos)
-    print(f"[gate1] dataset: {len(ds)} steps from {len(ds.demo_starts)} demos")
+    ds = LiberoBCDataset(task_file, max_demos=args.max_demos, chunk_size=args.chunk_size)
+    print(f"[gate1] dataset: {len(ds)} steps from {len(ds.demo_starts)} demos, chunk={args.chunk_size}")
 
     # save normalisers so eval can mirror them
     np.savez(out / "normalisers.npz",
@@ -87,9 +88,9 @@ def main():
 
     # ------------------------------------------------------------------ model
     if args.variant == "A":
-        model = VariantA().to(args.device)
+        model = VariantA(chunk_size=args.chunk_size).to(args.device)
     else:
-        model = VariantB().to(args.device)
+        model = VariantB(chunk_size=args.chunk_size).to(args.device)
     print(f"[gate1] model: {type(model).__name__}, trainable params = {trainable_param_count(model):,}")
 
     opt = AdamW(filter(lambda p: p.requires_grad, model.parameters()),
