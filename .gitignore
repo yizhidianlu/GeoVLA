@@ -1,0 +1,51 @@
+# SECRETS
+.secrets
+*.key
+*.pem
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Data / large files
+data/
+datasets/
+*.pt
+*.bin
+*.safetensors
+*.ckpt
+*.npz
+*.h5
+*.hdf5
+
+# Cache
+.cache/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Logs / runs
+logs/
+runs/
+*.log
+nohup.out
+wandb/
+mlruns/
+tb_logs/
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,84 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "geovla"
+version = "0.1.0-dev"
+description = "Geometry-aware, World-Model-coupled, Edge-real-time VLA policy."
+readme = "README.md"
+license = { text = "Apache-2.0" }
+authors = [
+    { name = "Feng Luo", email = "luofeng2026@gmail.com" }
+]
+requires-python = ">=3.10"
+keywords = ["vla", "robotics", "vision-language-action", "world-model", "3d-gaussian-splatting", "edge-inference"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+# Tight pins for reproducibility; full env materialised by scripts/env_setup.sh
+dependencies = [
+    "numpy>=1.24,<2.0",
+    "torch>=2.4,<2.6",
+    "torchvision>=0.19,<0.21",
+    "transformers==4.45.2",
+    "accelerate>=0.34",
+    "datasets>=2.21",
+    "huggingface-hub>=0.24",
+    "einops>=0.8",
+    "pyyaml>=6.0",
+    "tqdm>=4.66",
+    "rich>=13",
+    "tensorboard>=2.16",
+    "wandb>=0.18",
+    # Vision / 3D
+    "opencv-python-headless>=4.10",
+    "pillow>=10.4",
+    # Eval frameworks
+    "robosuite>=1.4",
+    "mujoco>=3.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-cov>=5",
+    "ruff>=0.6",
+    "black>=24.8",
+    "mypy>=1.11",
+    "pre-commit>=3.8",
+]
+gsplat = [
+    # 3DGS-related; install separately if available
+    "plyfile>=1.1",
+]
+deploy = [
+    # TensorRT-LLM is installed via NVIDIA wheel, not pip; see scripts/deploy/install_trtllm.sh
+]
+
+[project.urls]
+Homepage = "https://github.com/yizhidianlu/GeoVLA"
+"Bug Tracker" = "https://github.com/yizhidianlu/GeoVLA/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["geovla*"]
+exclude = ["tests*", "scripts*", "docs*", "configs*", "build_latex_out*"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "PL"]
+ignore = ["E501", "PLR2004"]   # we'll allow magic numbers in configs/
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = "-ra -q --strict-markers"
+testpaths = ["tests"]

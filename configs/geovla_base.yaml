@@ -1,0 +1,95 @@
+# GeoVLA-Base configuration (RQ1.A4 — full WM+3D variant)
+# Locked at master synthesis 2026-05-18.
+
+model:
+  backbone: "Qwen/Qwen2.5-1.5B-Instruct"     # primary; Llama-3.2-1.5B is fallback
+  backbone_dtype: "bfloat16"
+  lora:
+    r: 64
+    alpha: 128
+    dropout: 0.05
+    target_modules: ["q_proj", "k_proj", "v_proj", "o_proj", "up_proj", "down_proj"]
+
+perception:
+  module: "geovla.perception.gs_feedforward"
+  n_cameras: 3                     # wrist + 3rd-person + tactile-RGB
+  n_dense_max: 80000               # cap on dense 3DGS primitives per frame
+  n_control_particles: 2048        # after FPS downsampling
+  tokeniser:
+    type: "spatial_bucket_pool"    # 4×4×4 voxel grid → 256 geo-tokens
+    n_buckets: [4, 4, 4]           # XxYxZ grid in robot-frame
+    n_geo_tokens: 256
+    out_dim: 1536                  # = VLM hidden dim
+  target_fps: 30                   # 9 ms RTX 4090 / 15 ms Orin INT8
+
+world_model:
+  module: "geovla.world_model.gs_dynamics_gnn"
+  type: "gnn"                      # 5-layer message-passing
+  hidden_dim: 256
+  n_layers: 5
+  k_nearest: 16
+  contact_edges_per_finger: 4
+  rollout_horizon: 1               # single-step at inference (L3); 8 at off-line eval
+  pretrained_init: "warm_start_gs_dynamics"
+  proposals_k: 4                   # parallel-batched K=4
+
+action:
+  module: "geovla.action.flow_matching"
+  head_dim: 1536
+  action_chunk: 8                  # H_ACTION
+  action_dim: 7                    # D_ACTION
+  flow_steps_train: 16
+  flow_steps_inference: 2          # consistency-distilled at deploy
+  proposals_k: 4
+
+geo_spec:
+  module: "geovla.geo_spec.gate"
+  gate_type: "per_action_dim_8vec" # α ∈ ℝ⁸ (7 kinematic + 1 geometric)
+  training: "post_hoc_logistic_regression"
+  calibration_samples: 5000
+  kinematic_features: ["pos_l1", "rot_l1", "vel", "accel", "jerk", "contact_proxy", "kalman_innovation"]
+  geometric_feature: "dinov2_l2"   # feature-space L2 (not pixel) — robust to renderer artefacts
+  acceptance_threshold: 0.5
+  watchdog:
+    enable: true
+    fallback_to_kerv_threshold: 0.7   # if 5-frame rolling acceptance < 0.7
+
+# Edge-deployment optimisations are inherited by geovla_edge.yaml; here disabled.
+edge_stack:
+  distill_layers: 18               # no distillation in Base
+  mixture_of_horizons: false
+  token_transforming: false
+  tensorrt_int8: false
+
+training:
+  batch_size: 16                   # per-GPU; effective with grad_accum
+  grad_accum: 4
+  lr: 2.0e-4
+  lr_schedule: "cosine"
+  warmup_steps: 500
+  max_steps: 200000
+  eval_every: 5000
+  save_every: 10000
+  precision: "bf16"
+  gradient_checkpointing: true
+
+data:
+  pretraining:
+    - {name: "droid", path: "TBD", weight: 1.0}
+    - {name: "robotwin_2.0", path: "TBD", weight: 0.5}
+    - {name: "open_x_embodiment_mv", path: "TBD", weight: 0.5}
+  finetuning:
+    - {name: "libero_spatial", path: "/root/autodl-tmp/datasets/libero_spatial", weight: 1.0}
+    - {name: "libero_long", path: "TBD", weight: 1.0}
+    - {name: "calvin_abcd", path: "TBD", weight: 0.5}
+
+logging:
+  output_dir: "/root/autodl-tmp/geovla_runs"
+  wandb_project: "geovla"
+  wandb_entity: null                 # set by user
+  tensorboard: true
+  log_every: 50
+
+reproducibility:
+  seed: 42
+  deterministic: false              # speed > strict determinism at train; eval is deterministic
