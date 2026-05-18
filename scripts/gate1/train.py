@@ -36,13 +36,20 @@ def _build_d_rgb(**kw):
 def _build_d_rgbp(**kw):
     from geovla.models.qwen_vla import VariantD_RGBProprio
     return VariantD_RGBProprio(**kw)
+def _build_e_rgb(**kw):
+    from geovla.models.openvla_wrap import VariantE_RGB
+    return VariantE_RGB(**kw)
+def _build_e_rgbp(**kw):
+    from geovla.models.openvla_wrap import VariantE_RGBProprio
+    return VariantE_RGBProprio(**kw)
 
 
 def get_args():
     p = argparse.ArgumentParser()
-    p.add_argument("--variant", choices=["A", "B", "C", "D", "Dp"], required=True,
+    p.add_argument("--variant", choices=["A", "B", "C", "D", "Dp", "E", "Ep"], required=True,
                    help="A=RGB+MLP, B=RGB+propio+MLP, C=RGB+depth+MLP, "
-                        "D=RGB+Qwen+LoRA, Dp=RGB+propio+Qwen+LoRA")
+                        "D=RGB+Qwen+LoRA, Dp=RGB+propio+Qwen+LoRA, "
+                        "E=RGB+OpenVLA-7B+LoRA, Ep=RGB+propio+OpenVLA-7B+LoRA")
     p.add_argument("--task-keyword", default="between_the_plate_and_the_ramekin")
     p.add_argument("--max-demos", type=int, default=50)
     p.add_argument("--chunk-size", type=int, default=8)
@@ -110,6 +117,10 @@ def main():
         model = _build_d_rgb(chunk_size=args.chunk_size).to(args.device)
     elif args.variant == "Dp":
         model = _build_d_rgbp(chunk_size=args.chunk_size).to(args.device)
+    elif args.variant == "E":
+        model = _build_e_rgb(chunk_size=args.chunk_size).to(args.device)
+    elif args.variant == "Ep":
+        model = _build_e_rgbp(chunk_size=args.chunk_size).to(args.device)
     else:
         raise ValueError(args.variant)
     print(f"[gate1] model: {type(model).__name__}, trainable params = {trainable_param_count(model):,}")

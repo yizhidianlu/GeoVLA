@@ -17,6 +17,21 @@ def _lazy_d_rgbp(*args, **kwargs):
 VariantD_RGB = _lazy_d_rgb
 VariantD_RGBProprio = _lazy_d_rgbp
 
+
+def _lazy_e_rgb(*args, **kwargs):
+    from geovla.models.openvla_wrap import VariantE_RGB
+    return VariantE_RGB(*args, **kwargs)
+
+
+def _lazy_e_rgbp(*args, **kwargs):
+    from geovla.models.openvla_wrap import VariantE_RGBProprio
+    return VariantE_RGBProprio(*args, **kwargs)
+
+
+VariantE_RGB = _lazy_e_rgb
+VariantE_RGBProprio = _lazy_e_rgbp
+
 __all__ = ["VariantA", "VariantB", "VariantC",
            "VariantD_RGB", "VariantD_RGBProprio",
+           "VariantE_RGB", "VariantE_RGBProprio",
            "trainable_param_count"]
