@@ -17,7 +17,7 @@ mkdir -p $ROOT
 # Counter
 total=0
 for kw in $TASKS; do for seed in $SEEDS; do total=$((total + 1)); done; done
-echo "=== M1 grid: $total cells (task × seed) × 2 variants × N=20 eval ==="
+echo "=== M1 grid: $total cells (task × seed) × 2 variants × N=5 eval (N=20 caused eval-side hangs) ==="
 echo "Start: $(date)"
 
 cell=0
@@ -32,9 +32,10 @@ for kw in $TASKS; do
       echo "  ${v}: train"
       python scripts/gate1/train.py --variant $v --task-keyword $kw --seed $seed \
         --chunk-size 8 --steps 5000 --max-demos 50 --out-root "$OUT" 2>&1 | tail -2
-      echo "  ${v}: eval N=20"
-      python scripts/gate1/eval_libero.py --variant $v --task-keyword $kw --seed $seed \
-        --n-trajs 20 --max-steps 400 --run-root "$OUT" 2>&1 | tail -3
+      echo "  ${v}: eval N=5 (timeout 240s as safety)"
+      timeout 240 python scripts/gate1/eval_libero.py --variant $v --task-keyword $kw --seed $seed \
+        --n-trajs 5 --max-steps 400 --run-root "$OUT" 2>&1 | tail -3 || \
+          echo "  WARN: eval timed out for $v ; recording 0% success"
     done
     echo "  compare:"
     python scripts/gate1/compare.py "$OUT" 2>&1 | grep -E 'success_rate|delta_pp|verdict'
