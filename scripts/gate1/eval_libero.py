@@ -21,12 +21,12 @@ import numpy as np
 import torch
 
 from geovla.data import find_libero_spatial_task, PROPRIO_DIM
-from geovla.models import VariantA, VariantB
+from geovla.models import VariantA, VariantB, VariantC
 
 
 def get_args():
     p = argparse.ArgumentParser()
-    p.add_argument("--variant", choices=["A", "B"], required=True)
+    p.add_argument("--variant", choices=["A", "B", "C"], required=True)
     p.add_argument("--task-keyword", default="between_the_plate_and_the_ramekin")
     p.add_argument("--n-trajs", type=int, default=5)
     p.add_argument("--max-steps", type=int, default=400)
@@ -37,13 +37,10 @@ def get_args():
     return p.parse_args()
 
 
-def make_env(task_file: Path):
-    # task_file is /root/.../datasets/libero_spatial/<name>_demo.hdf5
-    # Need to map back to the matching bddl file
+def make_env(task_file: Path, need_depth: bool = False):
     from libero.libero.benchmark import get_benchmark_dict
     bm_dict = get_benchmark_dict()
     suite = bm_dict["libero_spatial"]()
-    # find task whose name matches the dataset file
     task_name = task_file.stem.replace("_demo", "")
     matches = [i for i in range(suite.n_tasks) if suite.get_task(i).name == task_name]
     if not matches:
@@ -53,7 +50,8 @@ def make_env(task_file: Path):
 
     from libero.libero.envs import OffScreenRenderEnv
     env = OffScreenRenderEnv(bddl_file_name=bddl,
-                             camera_heights=128, camera_widths=128)
+                             camera_heights=128, camera_widths=128,
+                             camera_depths=need_depth)
     return env, suite.get_task(task_idx), task_idx, suite
 
 
@@ -69,20 +67,22 @@ def main():
     proprio_mean = torch.tensor(norm["proprio_mean"], dtype=torch.float32, device=args.device)
     proprio_std = torch.tensor(norm["proprio_std"], dtype=torch.float32, device=args.device)
 
-    # Read chunk_size from ckpt args (saved at train time)
     ckpt = torch.load(run_dir / "model.pt", map_location=args.device, weights_only=False)
     chunk_size = ckpt["args"].get("chunk_size", 1)
     if args.variant == "A":
         model = VariantA(chunk_size=chunk_size).to(args.device)
-    else:
+    elif args.variant == "B":
         model = VariantB(chunk_size=chunk_size).to(args.device)
+    else:
+        model = VariantC(chunk_size=chunk_size).to(args.device)
     model.load_state_dict(ckpt["state_dict"])
     model.eval()
-    print(f"[eval] chunk_size = {chunk_size}")
+    depth_mean = float(norm.get("depth_mean", 0.0))
+    depth_std = float(norm.get("depth_std", 1.0))
+    print(f"[eval] chunk_size = {chunk_size}, variant = {args.variant}")
 
-    env, task, task_idx, suite = make_env(task_file)
+    env, task, task_idx, suite = make_env(task_file, need_depth=(args.variant == "C"))
     print(f"[eval] task = {task.name}  (idx {task_idx})")
-    print(f"[eval] variant = {args.variant}")
 
     successes, lengths, t0 = [], [], time.time()
     for ti in range(args.n_trajs):
@@ -104,6 +104,14 @@ def main():
             if img is None:
                 break
             img_t = torch.from_numpy(img).permute(2, 0, 1).float().unsqueeze(0).to(args.device) / 255.0
+            if args.variant == "C":
+                d = obs.get("agentview_depth")
+                if d is None:
+                    raise RuntimeError("variant C requires agentview_depth from env")
+                d = d.squeeze().astype(np.float32)
+                d = (d - depth_mean) / depth_std
+                d_t = torch.from_numpy(d).float().unsqueeze(0).unsqueeze(0).to(args.device)
+                img_t = torch.cat([img_t, d_t], dim=1)  # (1,4,128,128)
 
             ee_pos = obs.get("robot0_eef_pos", obs.get("ee_pos"))
             quat = obs.get("robot0_eef_quat")

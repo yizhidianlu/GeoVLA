@@ -28,12 +28,12 @@ from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
 
 from geovla.data import LiberoBCDataset, find_libero_spatial_task
-from geovla.models import VariantA, VariantB, trainable_param_count
+from geovla.models import VariantA, VariantB, VariantC, trainable_param_count
 
 
 def get_args():
     p = argparse.ArgumentParser()
-    p.add_argument("--variant", choices=["A", "B"], required=True)
+    p.add_argument("--variant", choices=["A", "B", "C"], required=True)
     p.add_argument("--task-keyword", default="between_the_plate_and_the_ramekin")
     p.add_argument("--max-demos", type=int, default=50)
     p.add_argument("--chunk-size", type=int, default=8)
@@ -66,13 +66,17 @@ def main():
     task_file = find_libero_spatial_task(args.data_root, args.task_keyword)
     print(f"[gate1] task file: {task_file.name}")
 
-    ds = LiberoBCDataset(task_file, max_demos=args.max_demos, chunk_size=args.chunk_size)
-    print(f"[gate1] dataset: {len(ds)} steps from {len(ds.demo_starts)} demos, chunk={args.chunk_size}")
+    load_depth = (args.variant == "C")
+    ds = LiberoBCDataset(task_file, max_demos=args.max_demos,
+                         chunk_size=args.chunk_size, load_depth=load_depth)
+    print(f"[gate1] dataset: {len(ds)} steps from {len(ds.demo_starts)} demos, "
+          f"chunk={args.chunk_size}, depth={load_depth}")
 
     # save normalisers so eval can mirror them
     np.savez(out / "normalisers.npz",
              action_mean=ds.action_mean, action_std=ds.action_std,
-             proprio_mean=ds.proprio_mean, proprio_std=ds.proprio_std)
+             proprio_mean=ds.proprio_mean, proprio_std=ds.proprio_std,
+             depth_mean=np.float32(ds.depth_mean), depth_std=np.float32(ds.depth_std))
 
     val_n = int(len(ds) * args.val_frac)
     train_n = len(ds) - val_n
@@ -89,8 +93,10 @@ def main():
     # ------------------------------------------------------------------ model
     if args.variant == "A":
         model = VariantA(chunk_size=args.chunk_size).to(args.device)
-    else:
+    elif args.variant == "B":
         model = VariantB(chunk_size=args.chunk_size).to(args.device)
+    else:
+        model = VariantC(chunk_size=args.chunk_size).to(args.device)
     print(f"[gate1] model: {type(model).__name__}, trainable params = {trainable_param_count(model):,}")
 
     opt = AdamW(filter(lambda p: p.requires_grad, model.parameters()),

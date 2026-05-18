@@ -55,11 +55,14 @@ class LiberoBCDataset(Dataset):
         max_demos: Optional[int] = None,
         normalise_actions: bool = True,
         image_size: int = 128,
-        chunk_size: int = 1,            # 1 = single-step BC; >1 = action chunking
+        chunk_size: int = 1,
+        load_depth: bool = False,       # if True, read sibling <stem>_depth.npz
     ):
         self.path = Path(hdf5_path)
         self.image_size = image_size
         self.chunk_size = chunk_size
+        self.load_depth = load_depth
+        self.depths: list[np.ndarray] = []  # filled if load_depth
 
         # Pre-read all demo trajectories into memory (50 demos × ~100 steps × ~150 KB image
         # ≈ 750 MB; fits comfortably in 1TB RAM).  We avoid per-getitem hdf5 reads.
@@ -69,6 +72,14 @@ class LiberoBCDataset(Dataset):
         self.demo_starts: list[int] = []       # cumulative index of first step of each demo
 
         running = 0
+        depth_cache = None
+        if load_depth:
+            depth_path = self.path.with_suffix("").with_suffix("_depth.npz")
+            if not depth_path.exists():
+                raise FileNotFoundError(
+                    f"depth cache not found: {depth_path}\n"
+                    f"Run: python scripts/gate1/render_depth_cache.py --task-keyword <keyword>")
+            depth_cache = np.load(depth_path)
         with h5py.File(self.path, "r") as h:
             keys = sorted([k for k in h["data"].keys() if k.startswith("demo_")],
                           key=lambda s: int(s.split("_")[-1]))
@@ -83,9 +94,21 @@ class LiberoBCDataset(Dataset):
                 self.images.append(img)
                 self.proprios.append(prop)
                 self.actions.append(act)
+                if load_depth:
+                    if k not in depth_cache:
+                        raise KeyError(f"depth cache missing {k}")
+                    self.depths.append(depth_cache[k].astype(np.float32))
                 self.demo_starts.append(running)
                 running += img.shape[0]
         self.total = running
+        if load_depth:
+            # depth normalisation (z-score over all valid depths)
+            all_d = np.concatenate([d.reshape(-1) for d in self.depths], axis=0)
+            self.depth_mean = float(all_d.mean())
+            self.depth_std = float(max(all_d.std(), 1e-3))
+        else:
+            self.depth_mean = 0.0
+            self.depth_std = 1.0
 
         # action normalisation
         self.action_mean = np.zeros(7, dtype=np.float32)
@@ -121,14 +144,20 @@ class LiberoBCDataset(Dataset):
         # action chunk [chunk_size, 7] — pad with last action at episode end
         T = self.actions[d].shape[0]
         end = min(t + self.chunk_size, T)
-        chunk = self.actions[d][t:end]                                # (k, 7), k <= chunk_size
+        chunk = self.actions[d][t:end]
         if chunk.shape[0] < self.chunk_size:
             pad = np.repeat(chunk[-1:], self.chunk_size - chunk.shape[0], axis=0)
             chunk = np.concatenate([chunk, pad], axis=0)
-        chunk = (chunk - self.action_mean) / self.action_std          # broadcast over chunk dim
+        chunk = (chunk - self.action_mean) / self.action_std
+        # optional depth channel
+        if self.load_depth:
+            dep = self.depths[d][t]                                   # (128,128) float
+            dep = (dep - self.depth_mean) / self.depth_std
+            dep_t = torch.from_numpy(dep).unsqueeze(0).float()        # (1,128,128)
+            img = torch.cat([img, dep_t], dim=0)                      # (4,128,128)
         return (img,
                 torch.from_numpy(prop),
-                torch.from_numpy(chunk))                              # (chunk_size, 7)
+                torch.from_numpy(chunk))
 
     def denormalise_action(self, a: torch.Tensor) -> torch.Tensor:
         m = torch.tensor(self.action_mean, device=a.device)
