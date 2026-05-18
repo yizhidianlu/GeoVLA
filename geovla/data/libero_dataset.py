@@ -74,7 +74,7 @@ class LiberoBCDataset(Dataset):
         running = 0
         depth_cache = None
         if load_depth:
-            depth_path = self.path.with_suffix("").with_suffix("_depth.npz")
+            depth_path = self.path.parent / (self.path.stem + "_depth.npz")
             if not depth_path.exists():
                 raise FileNotFoundError(
                     f"depth cache not found: {depth_path}\n"

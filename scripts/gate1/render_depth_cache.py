@@ -70,7 +70,7 @@ def main():
     )
     print(f"[depth-cache] env created")
 
-    out_path = task_file.with_suffix("").with_suffix(args.out_suffix)
+    out_path = task_file.parent / (task_file.stem + args.out_suffix)
     print(f"[depth-cache] -> {out_path}")
 
     out_dict = {}
