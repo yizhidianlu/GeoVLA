@@ -75,18 +75,45 @@ def main():
 
     out_dict = {}
     t0 = time.time()
+    failed = []
+    PARTIAL_SAVE_EVERY = 5
     with h5py.File(task_file, "r") as h:
         keys = sorted([k for k in h["data"].keys() if k.startswith("demo_")],
                       key=lambda s: int(s.split("_")[-1]))[:args.max_demos]
         for i, k in enumerate(keys):
-            states = h["data"][k]["states"][:]
-            depths = render_depth_for_demo(env, states)
-            out_dict[k] = depths
-            print(f"  {i+1}/{len(keys)} {k}: states={states.shape} -> "
-                  f"depths={depths.shape} (elapsed {time.time()-t0:.1f}s)", flush=True)
-    env.close()
+            try:
+                states = h["data"][k]["states"][:]
+                depths = render_depth_for_demo(env, states)
+                out_dict[k] = depths
+                print(f"  {i+1}/{len(keys)} {k}: states={states.shape} -> "
+                      f"depths={depths.shape} (elapsed {time.time()-t0:.1f}s)", flush=True)
+            except Exception as e:
+                failed.append((k, repr(e)[:120]))
+                print(f"  {i+1}/{len(keys)} {k}: FAILED ({repr(e)[:120]})", flush=True)
+                # try restarting env to flush any GL state
+                try:
+                    env.close()
+                except Exception:
+                    pass
+                env = OffScreenRenderEnv(
+                    bddl_file_name=bddl,
+                    camera_heights=128, camera_widths=128,
+                    camera_depths=True,
+                )
+            # partial save to avoid total loss if next demo hangs
+            if (i + 1) % PARTIAL_SAVE_EVERY == 0 and len(out_dict) > 0:
+                np.savez_compressed(out_path, **out_dict)
+                print(f"  [partial save] {len(out_dict)} demos -> {out_path.name}", flush=True)
+    try:
+        env.close()
+    except Exception:
+        pass
     np.savez_compressed(out_path, **out_dict)
-    print(f"[depth-cache] saved {len(out_dict)} demos in {time.time()-t0:.1f}s")
+    print(f"[depth-cache] saved {len(out_dict)} demos in {time.time()-t0:.1f}s "
+          f"(failed: {len(failed)})")
+    if failed:
+        for k, err in failed:
+            print(f"   FAILED {k}: {err}")
 
 
 if __name__ == "__main__":
