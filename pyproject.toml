@@ -23,7 +23,8 @@ classifiers = [
 
 # Tight pins for reproducibility; full env materialised by scripts/env_setup.sh
 dependencies = [
-    "numpy>=1.24,<2.0",
+    # numpy 2.x is the de-facto baseline on AutoDL pssa-vla env; tested OK in W1-D1
+    "numpy>=1.24,<3.0",
     "torch>=2.4,<2.6",
     "torchvision>=0.19,<0.21",
     "transformers==4.45.2",
