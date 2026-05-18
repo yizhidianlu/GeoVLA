@@ -92,11 +92,22 @@ def main():
         succ = False
         steps_used = args.max_steps
         for t in range(args.max_steps):
-            img = obs["agentview_rgb"]
+            # robosuite env uses different obs keys than the demo hdf5 — map them.
+            img = obs.get("agentview_image", obs.get("agentview_rgb"))
             if img is None:
                 break
             img = torch.from_numpy(img).permute(2, 0, 1).float().unsqueeze(0).to(args.device) / 255.0
-            prop = np.concatenate([obs["ee_pos"], obs["ee_ori"], obs["joint_states"], obs["gripper_states"]])
+
+            ee_pos = obs.get("robot0_eef_pos", obs.get("ee_pos"))           # (3,)
+            quat = obs.get("robot0_eef_quat")                              # (4,) xyzw
+            if quat is not None:
+                from scipy.spatial.transform import Rotation
+                ee_ori = Rotation.from_quat(quat).as_euler("xyz")          # (3,)
+            else:
+                ee_ori = obs["ee_ori"]
+            joint = obs.get("robot0_joint_pos", obs.get("joint_states"))   # (7,)
+            gripper = obs.get("robot0_gripper_qpos", obs.get("gripper_states"))  # (2,)
+            prop = np.concatenate([ee_pos, ee_ori, joint, gripper])         # (15,)
             prop_t = torch.from_numpy(prop).float().to(args.device).unsqueeze(0)
             prop_t = (prop_t - proprio_mean) / proprio_std
 
